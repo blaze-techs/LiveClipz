@@ -20,6 +20,21 @@ stream is still running.
 
 No cloud, no upload, no account. Everything runs on the device.
 
+## Download
+
+Prebuilt binaries come from the
+[latest release](https://github.com/blaze-techs/LiveClipz/releases/latest):
+
+| Platform | File |
+| --- | --- |
+| Windows | [`LiveClip.exe`](https://github.com/blaze-techs/LiveClipz/releases/latest/download/LiveClip.exe) (or the zip) |
+| macOS | `LiveClip-macos.zip` — unzip, then right-click → Open the first time |
+| Linux | [`LiveClip`](https://github.com/blaze-techs/LiveClipz/releases/latest/download/LiveClip) or `LiveClip-linux.zip` |
+| Android | `LiveClip.apk` — allow installs from your browser when prompted |
+
+The desktop builds carry their own ffmpeg. The apk is debug-signed, so Android
+shows the usual "unknown source" warning; it is not a Play Store build.
+
 ## Install
 
 ```bash
