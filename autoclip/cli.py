@@ -161,6 +161,13 @@ def cmd_doctor(_: argparse.Namespace) -> int:
     import numpy
 
     print(f"numpy: {numpy.__version__}")
+    from .media import has_filter
+
+    missing = [name for name in ("loudnorm", "fade", "gblur") if not has_filter(name)]
+    if missing:
+        print(f"filters: reduced (no {', '.join(missing)}; clips still render)")
+    else:
+        print("filters: full (loudness, fades, blurred fit)")
     if find_spec("kivy") is not None:
         print("kivy: found (UI available)")
     else:
