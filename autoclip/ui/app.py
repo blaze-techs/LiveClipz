@@ -41,15 +41,32 @@ DANGER = (1.0, 0.35, 0.45, 1)
 
 
 def _open_folder(path: Path) -> None:
+    """Reveal a clip. Android has no file manager hand-off, so copy the path."""
     try:
-        if sys.platform.startswith("win"):
+        if sys.platform.startswith("android"):
+            from kivy.core.clipboard import Clipboard
+
+            Clipboard.copy(str(path))
+        elif sys.platform.startswith("win"):
             os.startfile(str(path))  # type: ignore[attr-defined]
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(path)])
-        elif not sys.platform.startswith("android"):
+        else:
             subprocess.Popen(["xdg-open", str(path)])
     except Exception:
         pass
+
+
+def clips_dir() -> Path:
+    """Where clips are written: shared-ish storage on Android, app data elsewhere."""
+    if sys.platform.startswith("android"):
+        try:
+            from android.storage import app_storage_path
+
+            return Path(app_storage_path()) / "Movies" / "LiveClip"
+        except Exception:
+            pass
+    return Path(App.get_running_app().user_data_dir) / "clips"
 
 
 def label(text: str, color=TEXT, size: float = 13, bold: bool = False, **kwargs) -> Label:
@@ -349,7 +366,7 @@ class LiveClipApp(App):
             self.hint.text = str(exc)[:110]
             return
 
-        self.out_dir = Path(self.user_data_dir) / "clips"
+        self.out_dir = clips_dir()
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         if isinstance(src, AndroidScreenSource):

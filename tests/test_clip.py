@@ -57,3 +57,35 @@ def test_clip_at_file_edges(sample_video, tmp_path, start, end):
     cfg = ClipConfig(width=270, height=480, preset="ultrafast")
     info = probe(render_clip(sample_video, start, end, tmp_path / f"edge_{int(start)}.mp4", cfg))
     assert info.duration > 1.0
+
+
+def test_render_degrades_when_optional_filters_are_missing(sample_video, tmp_path, monkeypatch):
+    from autoclip import clip
+
+    monkeypatch.setattr(clip, "has_filter", lambda name: name in {"crop", "scale"})
+    cfg = ClipConfig()
+    out = clip.render_clip(sample_video, 1.0, 4.0, tmp_path / "plain.mp4", cfg)
+    info = probe(out)
+    assert (info.width, info.height) == (cfg.width, cfg.height)
+    assert info.duration == pytest.approx(3.0, abs=0.3)
+
+
+def test_blur_fit_falls_back_to_crop_without_blur_filters(sample_video, tmp_path, monkeypatch):
+    from autoclip import clip
+
+    monkeypatch.setattr(clip, "has_filter", lambda name: name in {"crop", "scale"})
+    cfg = ClipConfig(fit="blur")
+    out = clip.render_clip(sample_video, 2.0, 5.0, tmp_path / "fallback.mp4", cfg)
+    info = probe(out)
+    assert (info.width, info.height) == (cfg.width, cfg.height)
+
+
+def test_subtitles_need_a_build_with_the_filter(sample_video, tmp_path, monkeypatch):
+    from autoclip import clip
+    from autoclip.media import MediaError
+
+    monkeypatch.setattr(clip, "has_filter", lambda name: name in {"crop", "scale"})
+    srt = tmp_path / "subs.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:02,000\nhello\n")
+    with pytest.raises(MediaError, match="subtitles"):
+        clip.render_clip(sample_video, 1.0, 3.0, tmp_path / "s.mp4", ClipConfig(), srt)

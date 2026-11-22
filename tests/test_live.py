@@ -82,27 +82,36 @@ def test_android_camera_is_rejected_with_a_clear_message(monkeypatch):
         open_source("camera")
 
 
-def test_android_capture_feeds_ffmpeg_from_sockets(tmp_path):
-    source = screen_source(socket_dir=tmp_path, with_audio=False)
+def test_android_capture_feeds_ffmpeg_from_loopback_ports():
+    source = screen_source(with_audio=False)
+    source._video_port = 4321
     args = source.input_args()
     assert args[:3] == ["-f", "h264", "-r"]
-    assert args[-1] == f"unix://{tmp_path / 'liveclip_v.sock'}"
+    assert args[-1] == "tcp://127.0.0.1:4321"
     assert source.maps() == ["-map", "0:v:0?"]
 
 
-def test_android_capture_adds_audio_socket_when_available(tmp_path):
-    source = screen_source(socket_dir=tmp_path)
+def test_android_capture_adds_audio_when_available():
+    source = screen_source()
+    source._video_port = 4321
+    source._audio_port = 4322
     source._has_audio = True
     args = source.input_args()
-    assert "-f" in args and "s16le" in args
-    assert args[-1] == f"unix://{tmp_path / 'liveclip_a.sock'}"
+    assert "s16le" in args
+    assert args[-1] == "tcp://127.0.0.1:4322"
     assert source.maps() == ["-map", "0:v:0?", "-map", "1:a:0?"]
 
 
-def test_android_source_stops_cleanly_without_starting(tmp_path):
-    source = screen_source(socket_dir=tmp_path)
+def test_android_source_stops_cleanly_without_starting():
+    source = screen_source()
     source.stop()
     assert source._capture is None
+
+
+def test_android_start_without_permission_is_refused():
+    source = screen_source()
+    with pytest.raises(MediaError, match="needs permission"):
+        source.start()
 
 
 def test_live_session_cuts_clips_while_recording(sample_video, tmp_path):

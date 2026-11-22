@@ -45,9 +45,9 @@ javac -source 8 -target 8 -bootclasspath <android.jar> \
 - `autoclip/live.py` — `Source` objects (`CommandSource`, Android projection),
   `SegmentRecorder` (ffmpeg segment muxer + CSV index) and `LiveClipper`
   (monitor thread that renders from the rolling buffer).
-- `autoclip/android.py` — pyjnius bridge; ffmpeg reads `unix://` sockets.
+- `autoclip/android.py` — pyjnius bridge; ffmpeg reads `tcp://127.0.0.1:PORT`.
 - `src/org/liveclip/ScreenCapture.java` — MediaProjection → MediaCodec (H.264)
-  and AudioRecord (PCM) → two local sockets.
+  and AudioRecord (PCM) → two loopback sockets.
 - `autoclip/ui/app.py` — Kivy app; talks to the engine only through an event queue.
 
 ## Gotchas
@@ -65,6 +65,10 @@ javac -source 8 -target 8 -bootclasspath <android.jar> \
   `createVirtualDisplay`, otherwise `SecurityException`.
 - `prepend-sps-pps-to-idr-frames` keeps SPS/PPS in-band so ffmpeg's raw h264
   demuxer can start on a socket without a container.
+- python-for-android's ffmpeg is `--disable-everything`: only the
+  crop/scale/volume filters and the file/http/hls/udp/tcp protocols exist, and
+  without `ffpyplayer_codecs` there are no encoders at all. Hence loopback TCP
+  for capture and `has_filter()` checks in the renderer.
 - Screen/camera capture carries no audio; `--audio-device` (or
   `AUTOCLIP_AUDIO_DEVICE`) adds a second input, and `Source.maps()` decides
   which stream gets mapped.

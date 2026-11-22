@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .config import ClipConfig
-from .media import probe, run
+from .media import MediaError, has_filter, probe, run
 from .plan import ClipPlan
 
 _SAFE_STYLE = (
@@ -30,13 +30,17 @@ def _video_filters(
     w, h = cfg.width, cfg.height
     prefix: str | None = None
     chain: list[str] = []
+    blur_ok = all(has_filter(name) for name in ("split", "gblur", "overlay"))
 
     if not cfg.vertical:
-        chain += [
-            f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos",
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black",
-        ]
-    elif cfg.fit == "blur":
+        if has_filter("pad"):
+            chain += [
+                f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos",
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black",
+            ]
+        else:
+            chain.append(f"scale={w}:{h}")
+    elif cfg.fit == "blur" and blur_ok:
         prefix = (
             f"split=2[bg][fg];"
             f"[bg]scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,"
@@ -50,10 +54,13 @@ def _video_filters(
             f"scale={w}:{h}:flags=lanczos",
         ]
 
-    chain.append("setsar=1")
+    if has_filter("setsar"):
+        chain.append("setsar=1")
     if subtitles is not None:
+        if not has_filter("subtitles"):
+            raise MediaError("this ffmpeg build cannot burn in subtitles")
         chain.append(_subtitle_filter(subtitles))
-    if cfg.fade > 0 and duration > 2 * cfg.fade:
+    if cfg.fade > 0 and has_filter("fade") and duration > 2 * cfg.fade:
         chain += [
             f"fade=t=in:st=0:d={cfg.fade:.2f}",
             f"fade=t=out:st={duration - cfg.fade:.2f}:d={cfg.fade:.2f}",
@@ -62,15 +69,15 @@ def _video_filters(
 
 
 def _audio_filters(cfg: ClipConfig, duration: float) -> str | None:
-    if not cfg.loudness:
-        return None
-    chain = ["loudnorm=I=-14:TP=-1.5:LRA=11"]
-    if cfg.fade > 0 and duration > 2 * cfg.fade:
+    chain: list[str] = []
+    if cfg.loudness and has_filter("loudnorm"):
+        chain.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+    if cfg.fade > 0 and has_filter("afade") and duration > 2 * cfg.fade:
         chain += [
             f"afade=t=in:st=0:d={cfg.fade:.2f}",
             f"afade=t=out:st={duration - cfg.fade:.2f}:d={cfg.fade:.2f}",
         ]
-    return ",".join(chain)
+    return ",".join(chain) or None
 
 
 def _render(

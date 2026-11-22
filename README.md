@@ -138,7 +138,9 @@ buildozer -v android debug      # ~40 minutes, needs the SDK/NDK
 ```
 
 The APK bundles ffmpeg and compiles `src/org/liveclip/ScreenCapture.java` into
-the app. CI job: `.github/workflows/build-android.yml`.
+the app. `ffpyplayer_codecs` is in the requirements because python-for-android's
+ffmpeg recipe is built with `--disable-everything`; without that recipe there
+are no encoders at all. CI job: `.github/workflows/build-android.yml`.
 
 ## Platform support
 
@@ -151,9 +153,15 @@ the app. CI job: `.github/workflows/build-android.yml`.
 | System audio | ✅ with `--audio-device` | ✅ | ✅ with `--audio-device` | ✅ microphone |
 
 On Android the screen path mirrors the display into a hardware H.264 encoder
-and hands ffmpeg the elementary stream over a local socket, so clipping costs
-the same as on desktop. The system asks for capture permission the first time
-you press Start. Microphone audio is recorded when `RECORD_AUDIO` is granted.
+and hands ffmpeg the elementary stream over a loopback TCP port (p4a's ffmpeg
+has no `unix` protocol), so clipping costs the same as on desktop. The system
+asks for capture permission the first time you press Start. Microphone audio is
+recorded when `RECORD_AUDIO` is granted.
+
+That ffmpeg is also a stripped build: it only has the `crop`, `scale` and
+`volume` filters. The renderer asks `ffmpeg -filters` what exists and drops what
+does not, so Android clips are cropped to 9:16 but skip loudness normalisation,
+fades and the blurred-background fit. Desktop builds do all of it.
 
 Android camera capture is the one gap left: it needs a Camera2 session feeding
 the same encoder, and the app currently says so instead of failing quietly.

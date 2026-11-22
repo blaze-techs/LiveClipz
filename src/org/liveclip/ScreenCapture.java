@@ -12,8 +12,6 @@ import android.media.MediaFormat;
 import android.media.MediaRecorder;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.net.LocalServerSocket;
-import android.net.LocalSocket;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -24,15 +22,20 @@ import android.view.WindowManager;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 
 /**
  * Screen capture for Android.
  *
  * MediaProjection mirrors the display into a hardware H.264 encoder; the
- * elementary stream is written to a local socket that ffmpeg reads with
- * "-f h264 -i unix://...". Microphone PCM goes to a second socket so the clips
- * have audio. Nothing is buffered in Java beyond the codec's own queues.
+ * elementary stream is written to a loopback TCP socket that ffmpeg reads with
+ * "-f h264 -i tcp://127.0.0.1:PORT". Microphone PCM goes to a second socket so
+ * the clips have audio. Loopback TCP rather than a unix socket because
+ * python-for-android's ffmpeg has no "unix" protocol. Nothing is buffered in
+ * Java beyond the codec's own queues.
  */
 public class ScreenCapture {
     private static final String TAG = "LiveClip";
@@ -42,8 +45,8 @@ public class ScreenCapture {
     private MediaProjection projection;
     private MediaCodec codec;
     private VirtualDisplay display;
-    private LocalServerSocket videoServer;
-    private LocalServerSocket audioServer;
+    private ServerSocket videoServer;
+    private ServerSocket audioServer;
     private AudioRecord recorder;
     private Thread videoThread;
     private Thread audioThread;
@@ -51,9 +54,8 @@ public class ScreenCapture {
     private volatile boolean audioReady;
 
     public static ScreenCapture start(Context context, int resultCode, Intent data,
-                                      String videoPath, String audioPath,
-                                      int width, int height, int fps, int bitrate)
-            throws Exception {
+                                      boolean withAudio, int width, int height,
+                                      int fps, int bitrate) throws Exception {
         MediaProjectionManager manager = (MediaProjectionManager)
                 context.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         MediaProjection projection = manager.getMediaProjection(resultCode, data);
@@ -87,15 +89,15 @@ public class ScreenCapture {
         Surface surface = capture.codec.createInputSurface();
         capture.codec.start();
 
-        capture.videoServer = new LocalServerSocket(videoPath);
+        capture.videoServer = loopbackServer();
         capture.display = projection.createVirtualDisplay(
                 "LiveClipCapture", width, height, 320,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 surface, null, null);
 
-        if (audioPath != null) {
+        if (withAudio) {
             try {
-                capture.startAudio(audioPath);
+                capture.startAudio();
             } catch (Exception error) {
                 Log.w(TAG, "audio capture unavailable: " + error);
                 capture.stopAudio();
@@ -138,6 +140,18 @@ public class ScreenCapture {
         return audioReady;
     }
 
+    public int getVideoPort() {
+        return videoServer == null ? -1 : videoServer.getLocalPort();
+    }
+
+    public int getAudioPort() {
+        return audioServer == null ? -1 : audioServer.getLocalPort();
+    }
+
+    private static ServerSocket loopbackServer() throws IOException {
+        return new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+    }
+
     public void stop() {
         running = false;
         close(videoServer);
@@ -168,7 +182,7 @@ public class ScreenCapture {
         audioServer = null;
     }
 
-    private void startAudio(String path) throws IOException {
+    private void startAudio() throws IOException {
         int minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         int bufferSize = Math.max(minBuffer, SAMPLE_RATE / 2);
@@ -177,7 +191,7 @@ public class ScreenCapture {
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
             throw new IllegalStateException("microphone is not available");
         }
-        audioServer = new LocalServerSocket(path);
+        audioServer = loopbackServer();
         recorder.startRecording();
         audioReady = true;
         audioThread = new Thread(new Runnable() {
@@ -202,7 +216,7 @@ public class ScreenCapture {
     }
 
     private void pumpVideo() {
-        LocalSocket client = null;
+        Socket client = null;
         try {
             client = videoServer.accept();
             OutputStream out = client.getOutputStream();
@@ -230,7 +244,7 @@ public class ScreenCapture {
     }
 
     private void pumpAudio() {
-        LocalSocket client = null;
+        Socket client = null;
         byte[] buffer = new byte[4096];
         try {
             client = audioServer.accept();

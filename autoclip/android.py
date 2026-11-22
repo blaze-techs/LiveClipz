@@ -1,9 +1,13 @@
 """Android screen capture bridge.
 
 The heavy lifting happens in ``src/org/liveclip/ScreenCapture.java``: the display
-is mirrored into a hardware H.264 encoder and the elementary stream is pushed to
-a local socket. ffmpeg reads that socket, so everything downstream (segments,
-scoring, clipping) is the same code as on desktop.
+is mirrored into a hardware H.264 encoder whose elementary stream is pushed to a
+loopback TCP port, with microphone PCM on a second port. ffmpeg reads both, so
+everything downstream (segments, scoring, clipping) is the same code as on
+desktop.
+
+Loopback TCP instead of a unix socket because python-for-android's ffmpeg only
+builds the file/http/hls/udp/tcp protocols.
 
 pyjnius is imported lazily so this module stays importable off-device, which
 keeps the engine and the test suite platform independent.
@@ -11,10 +15,7 @@ keeps the engine and the test suite platform independent.
 
 from __future__ import annotations
 
-import os
 import threading
-import time
-from pathlib import Path
 
 from .live import Source
 from .media import MediaError
@@ -22,6 +23,7 @@ from .media import MediaError
 REQUEST_CODE = 0x4C43
 MIC_REQUEST_CODE = 0x4C44
 RESULT_OK = -1
+LOOPBACK = "tcp://127.0.0.1"
 
 
 class AndroidCaptureError(MediaError):
@@ -34,15 +36,8 @@ def _activity():
     return autoclass("org.kivy.android.PythonActivity").mActivity
 
 
-def _default_socket_dir() -> Path:
-    try:
-        return Path(str(_activity().getFilesDir().getAbsolutePath()))
-    except Exception:
-        return Path(os.environ.get("ANDROID_PRIVATE", "/data/local/tmp"))
-
-
 class AndroidScreenSource(Source):
-    """MediaProjection screen capture feeding ffmpeg over local sockets."""
+    """MediaProjection screen capture feeding ffmpeg over loopback ports."""
 
     is_file = False
 
@@ -54,39 +49,17 @@ class AndroidScreenSource(Source):
         fps: int = 30,
         bitrate: int = 6_000_000,
         with_audio: bool = True,
-        socket_dir: str | Path | None = None,
-        permission_timeout: float = 90.0,
     ) -> None:
         self.width = int(width)
         self.height = int(height)
         self.fps = int(fps)
         self.bitrate = int(bitrate)
         self.with_audio = bool(with_audio)
-        self.socket_dir = Path(socket_dir) if socket_dir else None
-        self.permission_timeout = float(permission_timeout)
         self._capture = None
         self._result: tuple[int, object] | None = None
         self._has_audio = False
-        self._video_socket: str | None = None
-        self._audio_socket: str | None = None
-
-    # -- paths ----------------------------------------------------------
-    def _base_dir(self) -> Path:
-        base = self.socket_dir or _default_socket_dir()
-        base.mkdir(parents=True, exist_ok=True)
-        return base
-
-    @property
-    def video_socket(self) -> str:
-        if self._video_socket is None:
-            self._video_socket = str(self._base_dir() / "liveclip_v.sock")
-        return self._video_socket
-
-    @property
-    def audio_socket(self) -> str:
-        if self._audio_socket is None:
-            self._audio_socket = str(self._base_dir() / "liveclip_a.sock")
-        return self._audio_socket
+        self._video_port = 0
+        self._audio_port = 0
 
     # -- permissions ----------------------------------------------------
     def request_permission_async(self, on_ready, on_error=None) -> None:
@@ -168,23 +141,21 @@ class AndroidScreenSource(Source):
 
         capture_class = autoclass("org.liveclip.ScreenCapture")
         result_code, data = self._result
-        audio_path = self.audio_socket if self._ensure_microphone() else None
         self._capture = capture_class.start(
             _activity(),
             result_code,
             data,
-            self.video_socket,
-            audio_path,
+            self._ensure_microphone(),
             self.width,
             self.height,
             self.fps,
             self.bitrate,
         )
-        try:
-            self._has_audio = bool(self._capture.hasAudio())
-        except Exception:
-            self._has_audio = False
-        self._wait_for_socket(self.video_socket)
+        self._video_port = int(self._capture.getVideoPort())
+        self._audio_port = int(self._capture.getAudioPort())
+        self._has_audio = bool(self._capture.hasAudio()) and self._audio_port > 0
+        if self._video_port <= 0:
+            raise AndroidCaptureError("the screen capture service did not open a port")
 
     def stop(self) -> None:
         capture, self._capture = self._capture, None
@@ -194,25 +165,13 @@ class AndroidScreenSource(Source):
             except Exception:
                 pass
         self._has_audio = False
+        self._video_port = 0
+        self._audio_port = 0
         self._result = None
-        for path in (self._video_socket, self._audio_socket):
-            if path:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-
-    def _wait_for_socket(self, path: str, timeout: float = 5.0) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if os.path.exists(path):
-                return
-            time.sleep(0.05)
-        raise AndroidCaptureError("the screen capture service did not start")
 
     # -- ffmpeg wiring --------------------------------------------------
     def input_args(self) -> list[str]:
-        args = ["-f", "h264", "-r", str(self.fps), "-i", f"unix://{self.video_socket}"]
+        args = ["-f", "h264", "-r", str(self.fps), "-i", f"{LOOPBACK}:{self._video_port}"]
         if self._has_audio:
             args += [
                 "-f",
@@ -222,7 +181,7 @@ class AndroidScreenSource(Source):
                 "-ac",
                 "1",
                 "-i",
-                f"unix://{self.audio_socket}",
+                f"{LOOPBACK}:{self._audio_port}",
             ]
         return args
 
