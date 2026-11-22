@@ -34,7 +34,9 @@ a = Analysis(
         "autoclip.transcribe",
         "autoclip.ui.app",
     ],
-    hookspath=[],
+    # Our hook-kivy.py replaces PyInstaller's, which imports Kivy and needs a
+    # display; the build then works on a headless Windows runner.
+    hookspath=[os.path.join(spec_dir, "hooks")],
     runtime_hooks=[],
     # faster-whisper is optional and drags in ~90 MB of ctranslate2; the
     # frozen app uses the HTTP caption path. Run from source for offline ASR.

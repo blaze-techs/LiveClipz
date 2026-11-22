@@ -1,6 +1,6 @@
 # LiveClip
 
-[![tests](https://github.com/blaze-techs/liveclip/actions/workflows/tests.yml/badge.svg)](https://github.com/blaze-techs/liveclip/actions/workflows/tests.yml)
+[![tests](https://github.com/blaze-techs/LiveClipz/actions/workflows/tests.yml/badge.svg)](https://github.com/blaze-techs/LiveClipz/actions/workflows/tests.yml)
 
 Watches a live source — screen, camera, stream URL or a video file — finds the
 hype moments on its own, and drops ready-to-post vertical clips while the
@@ -24,7 +24,7 @@ No cloud, no upload, no account. Everything runs on the device.
 
 ```bash
 pip install -e ".[ui]"                                  # engine + app
-pip install "git+https://github.com/blaze-techs/liveclip"  # or straight from GitHub
+pip install "git+https://github.com/blaze-techs/LiveClipz"  # or straight from GitHub
 liveclip doctor                                         # checks ffmpeg, numpy, kivy
 ```
 
