@@ -70,15 +70,25 @@ jobs:
 
       # PyInstaller's Kivy hook imports Kivy to find submodules, which needs a
       # display even though the build is headless.
+      # The local Kivy hook keeps analysis headless, so no xvfb here.
       - name: Build (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 30
         run: |
-          xvfb-run -a -s "-screen 0 1024x768x24" \
-            pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec \
-              --distpath dist --workpath build/pyinstaller
+          pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec \
+            --distpath dist --workpath build/pyinstaller
 
       - name: Build (Windows and macOS)
         if: runner.os != 'Linux'
+        timeout-minutes: 30
+        env:
+          # kivy_deps hooks import kivy.core.window while analysing, which
+          # needs a GL context. On the headless Windows runner that import
+          # found GDI's OpenGL 1.1, bailed out and then hung the build for
+          # the rest of the job. The mock backend makes it harmless.
+          KIVY_GL_BACKEND: mock
+          KIVY_WINDOW: sdl2
+          SDL_VIDEODRIVER: dummy
         run: pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec --distpath dist --workpath build/pyinstaller
 
       - uses: actions/upload-artifact@v4
