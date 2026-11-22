@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liveclip"
+version = "0.1.0"
+description = "Watches a live source, detects hype moments and auto-cuts vertical clips."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+ui = ["kivy>=2.3"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+liveclip = "autoclip.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["autoclip*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

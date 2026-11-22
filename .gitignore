@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.spec.bak
+.pytest_cache/
+.clips/
+bin/
+.buildozer/
+.kivy/
+*.mp4
+*.wav
+*.srt
+!tests/fixtures/*.srt
+*.egg-info/

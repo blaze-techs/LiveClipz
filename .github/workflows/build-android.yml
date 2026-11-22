@@ -1,0 +1,24 @@
+name: build android apk
+
+# Buildozer needs the Android SDK/NDK and takes ~40 minutes; run it on demand.
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          command: buildozer android debug
+          buildozer_version: stable
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiveClip-apk
+          path: ${{ steps.buildozer.outputs.filename }}
+          if-no-files-found: error
