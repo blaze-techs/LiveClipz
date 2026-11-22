@@ -328,6 +328,7 @@ class LiveClipper:
         live: LiveConfig | None = None,
         work_dir: str | Path | None = None,
         subtitles: str | Path | None = None,
+        captions: bool = False,
         audio_device: str | None = None,
         on_event: Callable[[Event], None] | None = None,
     ) -> None:
@@ -338,6 +339,7 @@ class LiveClipper:
         self.clip = clip or ClipConfig()
         self.live = live or LiveConfig()
         self.subtitles = Path(subtitles) if subtitles else None
+        self.captions = captions
         self.on_event = on_event
 
         base = Path(work_dir) if work_dir else self.out_dir / ".work"
@@ -442,6 +444,7 @@ class LiveClipper:
                     out_path=target,
                     cfg=self.clip,
                     subtitles=self.subtitles,
+                    captions=self.captions,
                 )
             except MediaError as exc:
                 self._emit({"type": "error", "message": str(exc)})

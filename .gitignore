@@ -14,3 +14,8 @@ bin/
 *.srt
 !tests/fixtures/*.srt
 *.egg-info/
+
+# never commit credentials
+API KEYS.txt
+*.pem
+.env

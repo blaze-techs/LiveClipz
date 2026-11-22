@@ -31,11 +31,22 @@ a = Analysis(
         "autoclip.live",
         "autoclip.media",
         "autoclip.plan",
+        "autoclip.transcribe",
         "autoclip.ui.app",
     ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["pytest", "tkinter"],
+    # faster-whisper is optional and drags in ~90 MB of ctranslate2; the
+    # frozen app uses the HTTP caption path. Run from source for offline ASR.
+    excludes=[
+        "pytest",
+        "tkinter",
+        "faster_whisper",
+        "ctranslate2",
+        "torch",
+        "transformers",
+        "tokenizers",
+    ],
     noarchive=False,
 )
 

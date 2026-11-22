@@ -10,15 +10,24 @@ from .config import ClipConfig
 from .media import MediaError, has_filter, probe, run
 from .plan import ClipPlan
 
-_SAFE_STYLE = (
-    "FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,"
-    "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=140"
-)
+# libass lays SRT files out on a 288-unit canvas, so force_style numbers are
+# not pixels; scale them from the target height instead.
+_STYLE_UNITS = 288.0
 
 
-def _subtitle_filter(path: Path) -> str:
+def _subtitle_style(height: int) -> str:
+    font = max(6, round(60 * _STYLE_UNITS / max(height, 1)))
+    margin = max(10, round(150 * _STYLE_UNITS / max(height, 1)))
+    return (
+        f"FontName=DejaVu Sans,FontSize={font},PrimaryColour=&H00FFFFFF,"
+        f"OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,MarginV={margin},"
+        "Alignment=2"
+    )
+
+
+def _subtitle_filter(path: Path, height: int = 1920) -> str:
     escaped = str(Path(path).resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
-    return f"subtitles='{escaped}':force_style='{_SAFE_STYLE}'"
+    return f"subtitles='{escaped}':force_style='{_subtitle_style(height)}'"
 
 
 def _video_filters(
@@ -59,7 +68,7 @@ def _video_filters(
     if subtitles is not None:
         if not has_filter("subtitles"):
             raise MediaError("this ffmpeg build cannot burn in subtitles")
-        chain.append(_subtitle_filter(subtitles))
+        chain.append(_subtitle_filter(subtitles, cfg.height))
     if cfg.fade > 0 and has_filter("fade") and duration > 2 * cfg.fade:
         chain += [
             f"fade=t=in:st=0:d={cfg.fade:.2f}",
@@ -87,8 +96,13 @@ def _render(
     cfg: ClipConfig,
     has_audio: bool,
     subtitles: Path | None,
+    captions: bool = False,
 ) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    if captions and subtitles is None and has_audio and has_filter("subtitles"):
+        from .transcribe import captions_for
+
+        subtitles = captions_for(list(input_args), duration, out_path.with_suffix(".srt"))
     prefix, chain = _video_filters(cfg, duration, subtitles)
     args: list[str] = ["-v", "error", *input_args]
 
@@ -134,6 +148,7 @@ def render_clip(
     out_path: str | Path,
     cfg: ClipConfig,
     subtitles: str | Path | None = None,
+    captions: bool = False,
 ) -> Path:
     info = probe(src)
     duration = max(0.1, end - start)
@@ -144,6 +159,7 @@ def render_clip(
         cfg,
         info.has_audio,
         Path(subtitles) if subtitles else None,
+        captions,
     )
 
 
@@ -154,6 +170,7 @@ def render_segments_clip(
     out_path: str | Path,
     cfg: ClipConfig,
     subtitles: str | Path | None = None,
+    captions: bool = False,
 ) -> Path:
     """Cut a clip out of a run of recorder segments (concat demuxer)."""
     if not segments:
@@ -182,6 +199,7 @@ def render_segments_clip(
             cfg,
             info.has_audio,
             Path(subtitles) if subtitles else None,
+            captions,
         )
     finally:
         listfile.unlink(missing_ok=True)
@@ -193,12 +211,13 @@ def render_plans(
     out_dir: str | Path,
     cfg: ClipConfig,
     on_clip: Callable[[Path, ClipPlan], None] | None = None,
+    captions: bool = False,
 ) -> list[Path]:
     out_dir = Path(out_dir)
     written: list[Path] = []
     for plan in plans:
         target = out_dir / f"clip_{int(round(plan.start * 1000)):09d}.mp4"
-        render_clip(src, plan.start, plan.end, target, cfg)
+        render_clip(src, plan.start, plan.end, target, cfg, captions=captions)
         written.append(target)
         if on_clip:
             on_clip(target, plan)

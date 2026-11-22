@@ -1,5 +1,7 @@
 # LiveClip
 
+[![tests](https://github.com/leonnovic/liveclip/actions/workflows/tests.yml/badge.svg)](https://github.com/leonnovic/liveclip/actions/workflows/tests.yml)
+
 Watches a live source — screen, camera, stream URL or a video file — finds the
 hype moments on its own, and drops ready-to-post vertical clips while the
 stream is still running.
@@ -12,7 +14,8 @@ stream is still running.
 2. Scores every 250 ms on loudness **and** on-screen motion.
 3. Picks peaks that stand out from the local baseline.
 4. Cuts each peak with pre/post roll, crops to 9:16 (or blurs the background),
-   normalises loudness, adds fades, optionally burns in subtitles.
+   normalises loudness, adds fades, and can transcribe the audio and burn the
+   words in as captions.
 5. Shows the clip in the app the moment it is written.
 
 No cloud, no upload, no account. Everything runs on the device.
@@ -20,12 +23,45 @@ No cloud, no upload, no account. Everything runs on the device.
 ## Install
 
 ```bash
-pip install -e ".[ui]"     # engine + app
-liveclip doctor            # checks ffmpeg, numpy, kivy
+pip install -e ".[ui]"                                  # engine + app
+pip install "git+https://github.com/leonnovic/liveclip"  # or straight from GitHub
+liveclip doctor                                         # checks ffmpeg, numpy, kivy
 ```
 
 ffmpeg must be on `PATH` (or point `AUTOCLIP_FFMPEG` / `AUTOCLIP_FFPROBE` at it).
 A packaged build ships its own copy and ignores `PATH`.
+
+## Automatic captions
+
+Captions are written by whatever speech-to-text service you point the app at;
+nothing is baked into the code. Turn them on with the **Auto captions** switch
+in the app, or `--captions` on the command line.
+
+```bash
+export AUTOCLIP_ASR_KEY=...          # free tier: console.groq.com
+liveclip clip stream.mp4 -o clips --captions
+liveclip live screen -o clips --captions
+```
+
+Each clip gets a `.srt` next to it as well as burned-in text.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `AUTOCLIP_ASR_PRESET` | `groq` | `groq`, `openai`, `together`, `deepinfra`, or `local` |
+| `AUTOCLIP_ASR_KEY` | – | API key (falls back to `OPENAI_API_KEY`) |
+| `AUTOCLIP_ASR_URL` | preset | Any OpenAI-compatible `/audio/transcriptions` base URL |
+| `AUTOCLIP_ASR_MODEL` | preset | Model name, e.g. `whisper-large-v3-turbo` |
+| `AUTOCLIP_ASR_LANGUAGE` | auto | ISO code such as `en`, `fr` |
+
+Fully offline, no key, no upload:
+
+```bash
+pip install faster-whisper
+export AUTOCLIP_ASR_PRESET=local AUTOCLIP_ASR_MODEL=small
+```
+
+Captions are placed in the lower sixth of the frame with a 150 px bottom margin
+and sized from the output height, so they stay clear of platform UI.
 
 ## Use
 

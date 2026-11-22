@@ -34,6 +34,11 @@ def _add_clip_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--blur", action="store_true", help="blurred background instead of crop")
     parser.add_argument("--subtitles", help="SRT file burned into the clip")
     parser.add_argument(
+        "--captions",
+        action="store_true",
+        help="transcribe the audio and burn the result in (needs AUTOCLIP_ASR_KEY)",
+    )
+    parser.add_argument(
         "--audio-device",
         default=None,
         help="system audio for screen/camera capture, e.g. 'pulse:@DEFAULT_MONITOR@' "
@@ -105,6 +110,7 @@ def cmd_clip(args: argparse.Namespace) -> int:
         on_clip=lambda path, plan: print(
             f"  + {path.name}  {plan.duration:.1f}s  score {plan.score:.2f}"
         ),
+        captions=args.captions,
     )
     print(f"Done: {len(written)} clip(s).")
     return 0
@@ -138,6 +144,7 @@ def cmd_live(args: argparse.Namespace) -> int:
         clip=clip_cfg,
         live=live_cfg,
         subtitles=args.subtitles,
+        captions=args.captions,
         audio_device=args.audio_device,
         on_event=report,
     )

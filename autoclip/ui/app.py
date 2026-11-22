@@ -29,6 +29,7 @@ from ..android import AndroidScreenSource
 from ..config import ClipConfig, DetectConfig, LiveConfig
 from ..live import LiveClipper, open_source
 from ..media import MediaError
+from ..transcribe import asr_ready
 
 BG = (0.031, 0.043, 0.071, 1)
 CARD = (0.063, 0.082, 0.125, 1)
@@ -297,6 +298,13 @@ class LiveClipApp(App):
         self.vertical = Switch(active=True, size_hint_x=None, width=dp(70))
         switch_row.add_widget(self.vertical)
         controls.add_widget(switch_row)
+
+        caption_row = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(10))
+        caption_row.add_widget(label("Auto captions", TEXT, 13))
+        self.captions = Switch(active=asr_ready(), size_hint_x=None, width=dp(70))
+        self.captions.bind(active=self._on_captions)
+        caption_row.add_widget(self.captions)
+        controls.add_widget(caption_row)
         root.add_widget(controls)
 
         clips_header = BoxLayout(size_hint_y=None, height=dp(26), spacing=dp(8))
@@ -387,6 +395,7 @@ class LiveClipApp(App):
                 detect=DetectConfig().with_sensitivity(self._sensitivity),
                 clip=clip_cfg,
                 live=LiveConfig(),
+                captions=self.captions.active,
                 on_event=self.events.put,
             )
         except Exception as exc:
@@ -399,6 +408,11 @@ class LiveClipApp(App):
         self.pill.set_state(True)
         self.hint.text = "Watching for hype…"
         threading.Thread(target=self._run_clipper, args=(clipper,), daemon=True).start()
+
+    def _on_captions(self, _switch, active: bool) -> None:
+        if active and not asr_ready():
+            self.captions.active = False
+            self.hint.text = "Captions need AUTOCLIP_ASR_KEY (or pip install faster-whisper)"
 
     def _run_clipper(self, clipper: LiveClipper) -> None:
         try:

@@ -65,6 +65,11 @@ javac -source 8 -target 8 -bootclasspath <android.jar> \
   `createVirtualDisplay`, otherwise `SecurityException`.
 - `prepend-sps-pps-to-idr-frames` keeps SPS/PPS in-band so ffmpeg's raw h264
   demuxer can start on a socket without a container.
+- libass lays SRT files out on a 288-unit canvas, so `force_style` numbers are
+  not pixels: `_subtitle_style()` scales FontSize/MarginV from the output
+  height. Passing pixel values puts captions in the middle of the frame.
+- DashScope's OpenAI-compatible mode has no `/audio/transcriptions`, so it is
+  not an ASR preset; groq/openai/together/deepinfra are.
 - python-for-android's ffmpeg is `--disable-everything`: only the
   crop/scale/volume filters and the file/http/hls/udp/tcp protocols exist, and
   without `ffpyplayer_codecs` there are no encoders at all. Hence loopback TCP
