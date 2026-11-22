@@ -103,9 +103,16 @@ jobs:
             name="${dir%/}"
             (cd "$dir" && zip -qr "../${name}.zip" .)
           done
-          ls -lh ./*.zip
+          # single-file builds are also published bare for a one-click download
+          [ -f LiveClip-windows/LiveClip.exe ] && cp LiveClip-windows/LiveClip.exe .
+          [ -f LiveClip-linux/LiveClip ] && cp LiveClip-linux/LiveClip .
+          ls -lh ./*.zip ./*.exe LiveClip 2>/dev/null || true
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: |
+            artifacts/*.zip
+            artifacts/LiveClip.exe
+            artifacts/LiveClip
+          fail_on_unmatched_files: false
           generate_release_notes: true
