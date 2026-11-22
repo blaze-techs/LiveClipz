@@ -11,7 +11,12 @@ version = 0.1.0
 
 # ffpyplayer_codecs turns on every encoder/muxer/demuxer (libx264, aac,
 # segment, concat). Without it p4a's ffmpeg recipe has no encoders at all.
-requirements = python3,kivy==2.3.1,numpy,ffmpeg,ffpyplayer_codecs,pyjnius,android
+#
+# charset-normalizer is pulled in by requests, which ffpyplayer drags along.
+# 3.x only ships compiled wheels, and p4a installs pure-Python modules with
+# --only-binary against a cp314-android tag pip rejects, so pin the last
+# release that still has a py3-none-any wheel.
+requirements = python3,kivy==2.3.1,numpy,ffmpeg,ffpyplayer_codecs,pyjnius,android,charset-normalizer<3
 
 orientation = all
 fullscreen = 0
