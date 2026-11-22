@@ -42,6 +42,11 @@ jobs:
       - name: Build apk
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          # p4a creates a build venv and upgrades its pip. pip 26 rewrote
+          # _internal.utils.logging, so the upgrade leaves that venv with a pip
+          # that cannot import itself. Constraints apply to the upgrade too, so
+          # the venv keeps a pip that works.
+          PIP_CONSTRAINT: ${{ github.workspace }}/packaging/android/pip-constraints.txt
         run: |
           python -m pip install --upgrade pip
           pip install buildozer cython
