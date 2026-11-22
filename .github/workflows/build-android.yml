@@ -1,6 +1,6 @@
 name: build android apk
 
-# Buildozer needs the Android SDK/NDK and takes ~40 minutes.
+# Buildozer needs the Android SDK/NDK and takes ~40 minutes on a cold cache.
 on:
   workflow_dispatch:
   push:
@@ -11,26 +11,58 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # 24.04 dropped packages that p4a still expects; 22.04 builds cleanly.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build with buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - uses: actions/setup-python@v5
         with:
-          command: buildozer android debug
-          buildozer_version: stable
+          python-version: "3.11"
+
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip openjdk-17-jdk-headless autoconf automake libtool \
+            pkg-config zlib1g-dev libncurses-dev libtinfo6 cmake libffi-dev \
+            libssl-dev libltdl-dev ccache
+
+      # The SDK/NDK download and the python+numpy+ffmpeg builds dominate the
+      # run time, so keep them between runs.
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-
+
+      - name: Build apk
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer cython
+          buildozer -v android debug
 
       - uses: actions/upload-artifact@v4
         with:
           name: LiveClip-apk
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: bin/*.apk
           if-no-files-found: error
 
       - name: Attach the apk to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.buildozer.outputs.filename }}
-          fail_on_unmatched_files: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          if [[ "$tag" != v* ]]; then
+            tag="$(gh release list --limit 1 --json tagName -q '.[0].tagName')"
+          fi
+          if [ -z "$tag" ]; then
+            echo "no release to attach to; the apk stays as a workflow artifact"
+            exit 0
+          fi
+          gh release upload "$tag" bin/*.apk --clobber
