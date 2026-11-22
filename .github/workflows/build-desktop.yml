@@ -41,7 +41,8 @@ jobs:
       - name: Bundle ffmpeg (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg xvfb libgl1-mesa-dri libmtdev1 libsdl2-2.0-0
           mkdir -p packaging/pyinstaller/bin
           cp "$(command -v ffmpeg)" "$(command -v ffprobe)" packaging/pyinstaller/bin/
 
@@ -64,7 +65,17 @@ jobs:
           Copy-Item $exe.FullName packaging/pyinstaller/bin/ffmpeg.exe
           Copy-Item $probe.FullName packaging/pyinstaller/bin/ffprobe.exe
 
-      - name: Build
+      # PyInstaller's Kivy hook imports Kivy to find submodules, which needs a
+      # display even though the build is headless.
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a -s "-screen 0 1024x768x24" \
+            pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec \
+              --distpath dist --workpath build/pyinstaller
+
+      - name: Build (Windows and macOS)
+        if: runner.os != 'Linux'
         run: pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec --distpath dist --workpath build/pyinstaller
 
       - uses: actions/upload-artifact@v4

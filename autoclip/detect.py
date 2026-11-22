@@ -30,8 +30,20 @@ class Peak:
 def read_audio(path: str | Path, sr: int = SAMPLE_RATE) -> np.ndarray:
     """Decode mono float samples, or an empty array when there is no audio."""
     cmd = [
-        ffmpeg_bin(), "-v", "error", "-nostdin", "-i", str(path),
-        "-vn", "-ac", "1", "-ar", str(sr), "-f", "s16le", "-",
+        ffmpeg_bin(),
+        "-v",
+        "error",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(sr),
+        "-f",
+        "s16le",
+        "-",
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     chunks: list[bytes] = []
@@ -56,9 +68,18 @@ def read_motion(
     """Mean absolute frame difference per frame, in 0..1."""
     w, h = size
     cmd = [
-        ffmpeg_bin(), "-v", "error", "-nostdin", "-i", str(path), "-an",
-        "-vf", f"fps={fps},scale={w}:{h},format=gray",
-        "-f", "rawvideo", "-",
+        ffmpeg_bin(),
+        "-v",
+        "error",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-an",
+        "-vf",
+        f"fps={fps},scale={w}:{h},format=gray",
+        "-f",
+        "rawvideo",
+        "-",
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     assert proc.stdout is not None
@@ -88,7 +109,7 @@ def pcm_db(samples: np.ndarray, sr: int = SAMPLE_RATE, hop: float = 0.25) -> np.
     if pad:
         samples = np.concatenate([samples, np.zeros(pad, dtype=samples.dtype)])
     frames = samples.reshape(-1, n).astype(np.float64)
-    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    rms = np.sqrt(np.mean(frames**2, axis=1))
     return np.clip(20.0 * np.log10(np.maximum(rms, 1e-6)), SILENCE_DB, 0.0)
 
 
@@ -176,7 +197,6 @@ def score_timeline(
     audio_times = audio_t0 + cfg.hop * (np.arange(audio_db.size) + 0.5)
     motion_times = motion_t0 + (np.arange(motion.size) + 0.5) / cfg.motion_fps
     return score_series(audio_db, audio_times, motion, motion_times, cfg)
-
 
 
 def find_peaks(times: np.ndarray, score: np.ndarray, cfg: DetectConfig) -> list[int]:

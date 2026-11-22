@@ -37,8 +37,14 @@ def test_subtitles_are_burned_in(sample_video, tmp_path):
 
 
 def test_render_plans_writes_one_file_per_clip(sample_video, tmp_path):
-    cfg = ClipConfig(pre_roll=1.0, post_roll=1.0, min_length=1.0,
-                     width=270, height=480, preset="ultrafast")
+    cfg = ClipConfig(
+        pre_roll=1.0,
+        post_roll=1.0,
+        min_length=1.0,
+        width=270,
+        height=480,
+        preset="ultrafast",
+    )
     plans = plan_clips(detect_peaks(sample_video, DetectConfig()), cfg, duration=12.0)
     seen = []
     written = render_plans(sample_video, plans, tmp_path, cfg, on_clip=lambda p, c: seen.append(p))

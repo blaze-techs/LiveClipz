@@ -25,8 +25,10 @@ from kivy.uix.switch import Switch
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
+from ..android import AndroidScreenSource
 from ..config import ClipConfig, DetectConfig, LiveConfig
-from ..live import LiveClipper
+from ..live import LiveClipper, open_source
+from ..media import MediaError
 
 BG = (0.031, 0.043, 0.071, 1)
 CARD = (0.063, 0.082, 0.125, 1)
@@ -51,8 +53,15 @@ def _open_folder(path: Path) -> None:
 
 
 def label(text: str, color=TEXT, size: float = 13, bold: bool = False, **kwargs) -> Label:
-    widget = Label(text=text, color=color, font_size=dp(size), bold=bold,
-                   halign="left", valign="middle", **kwargs)
+    widget = Label(
+        text=text,
+        color=color,
+        font_size=dp(size),
+        bold=bold,
+        halign="left",
+        valign="middle",
+        **kwargs,
+    )
     widget.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
     return widget
 
@@ -128,8 +137,15 @@ class Waveform(Widget):
             Color(*CARD)
             RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(16)])
             Color(0.13, 0.16, 0.22, 1)
-            Line(points=[self.x + dp(12), self.y + dp(12),
-                         self.right - dp(12), self.y + dp(12)], width=1)
+            Line(
+                points=[
+                    self.x + dp(12),
+                    self.y + dp(12),
+                    self.right - dp(12),
+                    self.y + dp(12),
+                ],
+                width=1,
+            )
             if self.width < dp(40) or self.height < dp(40):
                 return
             step = (self.width - dp(24)) / max(1, len(self.values) - 1)
@@ -148,15 +164,28 @@ class Waveform(Widget):
 
 class ClipRow(Card):
     def __init__(self, name: str, detail: str, path: Path, **kwargs):
-        super().__init__(orientation="horizontal", size_hint_y=None, height=dp(68),
-                         padding=(dp(14), dp(8)), spacing=dp(10), **kwargs)
+        super().__init__(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=dp(68),
+            padding=(dp(14), dp(8)),
+            spacing=dp(10),
+            **kwargs,
+        )
         text = BoxLayout(orientation="vertical", spacing=dp(2))
         text.add_widget(label(name, TEXT, 13, True, size_hint_y=0.55))
         text.add_widget(label(detail, MUTED, 11, size_hint_y=0.45))
         self.add_widget(text)
-        open_btn = Button(text="Open", size_hint=(None, 1), width=dp(64),
-                          background_normal="", background_color=ACCENT,
-                          color=TEXT, font_size=dp(12), bold=True)
+        open_btn = Button(
+            text="Open",
+            size_hint=(None, 1),
+            width=dp(64),
+            background_normal="",
+            background_color=ACCENT,
+            color=TEXT,
+            font_size=dp(12),
+            bold=True,
+        )
         open_btn.bind(on_release=lambda *_: _open_folder(path))
         self.add_widget(open_btn)
 
@@ -176,8 +205,14 @@ class LiveClipApp(App):
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
 
         header = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(10))
-        wordmark = Label(text="[b]LiveClip[/b]", markup=True, color=TEXT,
-                         font_size=dp(25), halign="left", valign="middle")
+        wordmark = Label(
+            text="[b]LiveClip[/b]",
+            markup=True,
+            color=TEXT,
+            font_size=dp(25),
+            halign="left",
+            valign="middle",
+        )
         wordmark.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
         header.add_widget(wordmark)
         self.pill = Pill(text="○ IDLE", size_hint=(None, 1), width=dp(100))
@@ -187,36 +222,58 @@ class LiveClipApp(App):
         self.wave = Waveform(size_hint_y=None, height=dp(124))
         root.add_widget(self.wave)
 
-        controls = Card(orientation="vertical", padding=dp(14), spacing=dp(10),
-                        size_hint_y=None, height=dp(282))
+        controls = Card(
+            orientation="vertical",
+            padding=dp(14),
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(282),
+        )
         row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44))
         self.source = Spinner(
             text="Screen",
             values=("Screen", "Camera", "Stream URL", "Video file"),
-            size_hint=(0.52, 1), background_normal="", background_color=FIELD,
-            color=TEXT, font_size=dp(13),
+            size_hint=(0.52, 1),
+            background_normal="",
+            background_color=FIELD,
+            color=TEXT,
+            font_size=dp(13),
         )
         self.source.bind(text=self._on_source)
         row.add_widget(self.source)
-        self.start_btn = Button(text="Start clipping", size_hint=(0.48, 1),
-                                background_normal="", background_color=ACCENT,
-                                color=TEXT, bold=True, font_size=dp(13))
+        self.start_btn = Button(
+            text="Start clipping",
+            size_hint=(0.48, 1),
+            background_normal="",
+            background_color=ACCENT,
+            color=TEXT,
+            bold=True,
+            font_size=dp(13),
+        )
         self.start_btn.bind(on_release=self.toggle)
         row.add_widget(self.start_btn)
         controls.add_widget(row)
 
         self.path_input = TextInput(
-            hint_text="rtmp://… or /path/to/video.mp4", multiline=False,
-            size_hint_y=None, height=dp(42), background_color=FIELD,
-            foreground_color=TEXT, hint_text_color=MUTED, cursor_color=HOT,
-            padding=(dp(12), dp(12)), disabled=True,
+            hint_text="rtmp://… or /path/to/video.mp4",
+            multiline=False,
+            size_hint_y=None,
+            height=dp(42),
+            background_color=FIELD,
+            foreground_color=TEXT,
+            hint_text_color=MUTED,
+            cursor_color=HOT,
+            padding=(dp(12), dp(12)),
+            disabled=True,
         )
         controls.add_widget(self.path_input)
 
-        controls.add_widget(self._slider_row("Sensitivity", 0.6, 3.0, self._sensitivity,
-                                             self._set_sensitivity))
-        controls.add_widget(self._slider_row("Clip length", 4.0, 30.0, self._length,
-                                             self._set_length))
+        controls.add_widget(
+            self._slider_row("Sensitivity", 0.6, 3.0, self._sensitivity, self._set_sensitivity)
+        )
+        controls.add_widget(
+            self._slider_row("Clip length", 4.0, 30.0, self._length, self._set_length)
+        )
 
         switch_row = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(10))
         switch_row.add_widget(label("Vertical 9:16", TEXT, 13))
@@ -233,8 +290,12 @@ class LiveClipApp(App):
         root.add_widget(clips_header)
 
         self.scroll = ScrollView(bar_width=dp(3))
-        self.clip_list = BoxLayout(orientation="vertical", spacing=dp(8),
-                                   size_hint_y=None, padding=(0, 0, 0, dp(8)))
+        self.clip_list = BoxLayout(
+            orientation="vertical",
+            spacing=dp(8),
+            size_hint_y=None,
+            padding=(0, 0, 0, dp(8)),
+        )
         self.clip_list.bind(minimum_height=self.clip_list.setter("height"))
         self.scroll.add_widget(self.clip_list)
         root.add_widget(self.scroll)
@@ -282,26 +343,59 @@ class LiveClipApp(App):
         if not source:
             self.hint.text = "Add a stream URL or file path first"
             return
-        out_dir = Path(self.user_data_dir) / "clips"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            src = open_source(source)
+        except MediaError as exc:
+            self.hint.text = str(exc)[:110]
+            return
+
+        self.out_dir = Path(self.user_data_dir) / "clips"
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(src, AndroidScreenSource):
+            self.hint.text = "Waiting for screen capture permission…"
+            src.request_permission_async(
+                on_ready=lambda: self._launch(src),
+                on_error=self._start_failed,
+            )
+            return
+        self._launch(src)
+
+    def _launch(self, src) -> None:
         clip_cfg = ClipConfig(vertical=self.vertical.active).with_length(self._length)
         try:
-            self.clipper = LiveClipper(
-                source, out_dir,
+            clipper = LiveClipper(
+                src,
+                self.out_dir,
                 detect=DetectConfig().with_sensitivity(self._sensitivity),
                 clip=clip_cfg,
                 live=LiveConfig(),
                 on_event=self.events.put,
             )
-            self.clipper.start()
         except Exception as exc:
-            self.clipper = None
-            self.hint.text = f"Could not start: {exc}"[:90]
+            self._start_failed(exc)
             return
+
+        self.clipper = clipper
         self.start_btn.text = "Stop"
         self.start_btn.background_color = DANGER
         self.pill.set_state(True)
         self.hint.text = "Watching for hype…"
+        threading.Thread(target=self._run_clipper, args=(clipper,), daemon=True).start()
+
+    def _run_clipper(self, clipper: LiveClipper) -> None:
+        try:
+            clipper.start()
+        except Exception as exc:
+            self.events.put({"type": "error", "message": f"Could not start: {exc}"})
+            Clock.schedule_once(lambda *_: self.stop_session(), 0)
+
+    def _start_failed(self, exc) -> None:
+        self.clipper = None
+        self.start_btn.text = "Start clipping"
+        self.start_btn.background_color = ACCENT
+        self.pill.set_state(False)
+        self.hint.text = str(exc)[:110]
 
     def stop_session(self) -> None:
         clipper, self.clipper = self.clipper, None

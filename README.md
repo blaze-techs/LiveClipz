@@ -25,6 +25,7 @@ liveclip doctor            # checks ffmpeg, numpy, kivy
 ```
 
 ffmpeg must be on `PATH` (or point `AUTOCLIP_FFMPEG` / `AUTOCLIP_FFPROBE` at it).
+A packaged build ships its own copy and ignores `PATH`.
 
 ## Use
 
@@ -53,6 +54,26 @@ liveclip live rtmp://example.com/live -o clips --duration 600
 Sources: `screen`, `camera`, any URL ffmpeg understands (`rtmp://`, `rtsp://`,
 `http(s)://…m3u8`), or a local file path.
 
+## Audio
+
+Streams and files carry their own audio. Screen and camera capture do not, so
+pass the system-sound device explicitly:
+
+```bash
+# Linux: the default PulseAudio monitor (game/app sound, not the mic)
+liveclip live screen --audio-device "pulse:@DEFAULT_MONITOR@"
+
+# Windows: a loopback device such as Stereo Mix or virtual-audio-capturer
+liveclip live screen --audio-device "dshow:Stereo Mix"
+
+# macOS: avfoundation audio index 0
+liveclip live screen --audio-device "avfoundation:0"
+```
+
+The same value can be set once in `AUTOCLIP_AUDIO_DEVICE` and the app picks it
+up automatically. Without it, screen clips are silent but detection still works
+from motion.
+
 ## Tuning
 
 | Flag | Meaning |
@@ -64,6 +85,7 @@ Sources: `screen`, `camera`, any URL ffmpeg understands (`rtmp://`, `rtsp://`,
 | `--horizontal` | keep the source aspect ratio |
 | `--subtitles clip.srt` | burn captions into the clip |
 | `--buffer` | live rolling buffer in seconds (default 120) |
+| `--audio-device` | system sound for screen/camera capture |
 
 ## How detection works
 
@@ -93,9 +115,20 @@ pip install -e ".[ui]" pyinstaller
 pyinstaller --noconfirm packaging/pyinstaller/liveclip.spec
 ```
 
-The result is `dist/LiveClip.exe`, with ffmpeg bundled inside.
-`.github/workflows/build-desktop.yml` builds Windows, macOS and Linux artifacts
-on demand.
+The result is `dist/LiveClip.exe`, with ffmpeg bundled inside. Double-clicking
+opens the UI; running it with arguments (`LiveClip.exe doctor`) prints to the
+calling console.
+
+On Linux the build has to run under a virtual display, because PyInstaller's
+Kivy hook imports Kivy to discover submodules:
+
+```bash
+xvfb-run -a -s "-screen 0 1024x768x24" pyinstaller --noconfirm \
+  packaging/pyinstaller/liveclip.spec
+```
+
+`.github/workflows/build-desktop.yml` does all of this for Windows, macOS and
+Linux on demand.
 
 ## Build an Android APK
 
@@ -104,40 +137,51 @@ pip install buildozer cython
 buildozer -v android debug      # ~40 minutes, needs the SDK/NDK
 ```
 
-The APK uses Kivy, numpy and the bundled ffmpeg. CI job:
-`.github/workflows/build-android.yml`.
+The APK bundles ffmpeg and compiles `src/org/liveclip/ScreenCapture.java` into
+the app. CI job: `.github/workflows/build-android.yml`.
 
 ## Platform support
 
 | Source | Windows | macOS | Linux | Android |
 | --- | --- | --- | --- | --- |
-| Screen | ✅ gdigrab | ✅ avfoundation | ✅ x11grab | ⏳ needs MediaProjection |
-| Camera | ✅ dshow | ✅ avfoundation | ✅ v4l2 | ⏳ planned |
+| Screen | ✅ gdigrab | ✅ avfoundation | ✅ x11grab | ✅ MediaProjection |
+| Camera | ✅ dshow | ✅ avfoundation | ✅ v4l2 | ❌ not wired |
 | Stream URL | ✅ | ✅ | ✅ | ✅ |
 | Video file | ✅ | ✅ | ✅ | ✅ |
+| System audio | ✅ with `--audio-device` | ✅ | ✅ with `--audio-device` | ✅ microphone |
 
-On Android, screen and camera capture require a MediaProjection foreground
-service; until that lands the app tells you so instead of failing silently.
+On Android the screen path mirrors the display into a hardware H.264 encoder
+and hands ffmpeg the elementary stream over a local socket, so clipping costs
+the same as on desktop. The system asks for capture permission the first time
+you press Start. Microphone audio is recorded when `RECORD_AUDIO` is granted.
+
+Android camera capture is the one gap left: it needs a Camera2 session feeding
+the same encoder, and the app currently says so instead of failing quietly.
 
 ## Tests
 
 ```bash
-python -m pytest        # 31 tests, ~20 s, needs ffmpeg
+python -m pytest        # 40 tests, ~25 s, needs ffmpeg
+python -m ruff check .
 ```
 
 The suite generates its own test video (two loud flashes in 12 s) and asserts
-that detection, planning, rendering and a full live session all behave.
+that detection, planning, rendering and a full live session all behave. The
+Android bridge is tested off-device through its socket wiring, and CI compiles
+the Java helper against the real Android SDK jar.
 
 ## Layout
 
 ```
 autoclip/
   config.py   tunable dataclasses
-  media.py    ffmpeg/ffprobe wrappers
+  media.py    ffmpeg/ffprobe wrappers (bundled binary aware)
   detect.py   loudness + motion scoring, peak picking
   plan.py     clip windows, merging, top-N
   clip.py     ffmpeg render (9:16, blur, captions, loudnorm)
-  live.py     segment recorder + rolling-buffer monitor
+  live.py     sources, segment recorder, rolling-buffer monitor
+  android.py  MediaProjection bridge (sockets -> ffmpeg)
   cli.py      detect / clip / live / doctor / ui
   ui/app.py   Kivy app for desktop and Android
+src/org/liveclip/ScreenCapture.java   Android capture service
 ```

@@ -8,23 +8,30 @@ building; they are copied into the app and picked up by autoclip.media.
 import glob
 import os
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files
 
 spec_dir = os.path.abspath(SPECPATH)  # noqa: F821
 project_root = os.path.abspath(os.path.join(spec_dir, "..", ".."))
 
 bundled_tools = [(path, "bin") for path in glob.glob(os.path.join(spec_dir, "bin", "*"))]
 
+# Listed explicitly: collecting kivy or autoclip.ui as submodules imports them,
+# and importing Kivy without a display kills the build subprocess.
 a = Analysis(
     [os.path.join(project_root, "main.py")],
     pathex=[project_root],
     binaries=bundled_tools,
     datas=collect_data_files("kivy") + collect_data_files("autoclip"),
-    hiddenimports=collect_submodules("autoclip") + [
-        "kivy.core.window",
-        "kivy.core.text",
-        "kivy.core.image",
-        "kivy.core.audio",
+    hiddenimports=[
+        "autoclip.android",
+        "autoclip.cli",
+        "autoclip.clip",
+        "autoclip.config",
+        "autoclip.detect",
+        "autoclip.live",
+        "autoclip.media",
+        "autoclip.plan",
+        "autoclip.ui.app",
     ],
     hookspath=[],
     runtime_hooks=[],

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, Sequence
 
 from .config import ClipConfig
 from .media import probe, run
@@ -102,12 +102,18 @@ def _render(
         args += ["-an"]
 
     args += [
-        "-c:v", "libx264",
-        "-preset", cfg.preset,
-        "-crf", str(cfg.crf),
-        "-pix_fmt", "yuv420p",
-        "-r", str(cfg.fps),
-        "-movflags", "+faststart",
+        "-c:v",
+        "libx264",
+        "-preset",
+        cfg.preset,
+        "-crf",
+        str(cfg.crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(cfg.fps),
+        "-movflags",
+        "+faststart",
         str(out_path),
     ]
     run(args)
@@ -152,8 +158,18 @@ def render_segments_clip(
     try:
         info = probe(segments[0])
         return _render(
-            ["-f", "concat", "-safe", "0", "-i", str(listfile),
-             "-ss", f"{offset:.3f}", "-t", f"{length:.3f}"],
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(listfile),
+                "-ss",
+                f"{offset:.3f}",
+                "-t",
+                f"{length:.3f}",
+            ],
             length,
             Path(out_path),
             cfg,

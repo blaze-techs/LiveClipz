@@ -7,9 +7,9 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 
 class MediaError(RuntimeError):
@@ -28,12 +28,19 @@ def _tool(name: str) -> str:
     override = os.environ.get(f"AUTOCLIP_{name.upper()}")
     if override:
         return override
+    # A packaged build ships its own ffmpeg; use it so the app never depends on
+    # whatever happens to be on the user's PATH.
+    frozen = getattr(sys, "_MEIPASS", None)
+    if frozen:
+        bundled = Path(frozen) / "bin" / (f"{name}.exe" if os.name == "nt" else name)
+        if bundled.exists():
+            if os.name != "nt":
+                bundled.chmod(0o755)
+            return str(bundled)
     found = shutil.which(name)
     if found:
         return found
-    bundled = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "bin" / (
-        f"{name}.exe" if os.name == "nt" else name
-    )
+    bundled = Path(__file__).resolve().parent / "bin" / (f"{name}.exe" if os.name == "nt" else name)
     if bundled.exists():
         return str(bundled)
     raise MediaError(
@@ -75,8 +82,10 @@ def probe(path: str | Path) -> MediaInfo:
     proc = subprocess.run(
         [
             ffprobe_bin(),
-            "-v", "error",
-            "-print_format", "json",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
             str(path),
@@ -91,7 +100,10 @@ def probe(path: str | Path) -> MediaInfo:
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
     duration = 0.0
-    for candidate in (data.get("format", {}).get("duration"), (video or {}).get("duration")):
+    for candidate in (
+        data.get("format", {}).get("duration"),
+        (video or {}).get("duration"),
+    ):
         try:
             duration = float(candidate)
             break

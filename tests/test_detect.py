@@ -5,8 +5,8 @@ from autoclip.detect import (
     detect_peaks,
     find_peaks,
     pcm_db,
-    rolling_median,
     robust_z,
+    rolling_median,
     score_series,
 )
 

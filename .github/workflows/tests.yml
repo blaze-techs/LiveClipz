@@ -19,7 +19,17 @@ jobs:
       - name: Install package
         run: pip install -e ".[dev,ui]"
       - name: Engine tests
-        run: python -m pytest
+        run: python -m pytest -q
+      - name: Java helper compiles
+        run: |
+          sudo apt-get install -y default-jdk-headless
+          curl -sL -o platform.zip \
+            https://dl.google.com/android/repository/platform-33-ext3_r03.zip
+          unzip -q platform.zip -d /tmp/android-platform
+          javac -source 8 -target 8 \
+            -bootclasspath /tmp/android-platform/android-13/android.jar \
+            -d /tmp/java-out src/org/liveclip/ScreenCapture.java
+
       - name: UI builds headless
         run: |
           xvfb-run -a -s "-screen 0 900x1000x24" python -c "

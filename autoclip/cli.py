@@ -18,7 +18,9 @@ from .plan import plan_clips
 
 def _add_detect_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--sensitivity", type=float, default=1.6,
+        "--sensitivity",
+        type=float,
+        default=1.6,
         help="1.0 = calm, 2.5 = only huge moments (default 1.6)",
     )
     parser.add_argument("--min-gap", type=float, default=6.0, help="seconds between clips")
@@ -31,6 +33,12 @@ def _add_clip_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--horizontal", action="store_true", help="keep the source aspect ratio")
     parser.add_argument("--blur", action="store_true", help="blurred background instead of crop")
     parser.add_argument("--subtitles", help="SRT file burned into the clip")
+    parser.add_argument(
+        "--audio-device",
+        default=None,
+        help="system audio for screen/camera capture, e.g. 'pulse:@DEFAULT_MONITOR@' "
+        "or 'dshow:Stereo Mix' (default: none)",
+    )
 
 
 def _clip_config(args: argparse.Namespace) -> ClipConfig:
@@ -52,18 +60,26 @@ def cmd_detect(args: argparse.Namespace) -> int:
     peaks = detect_peaks(args.input, cfg)
     plans = plan_clips(peaks, _clip_config(args), duration=info.duration or None)
     if args.json:
-        print(json.dumps(
-            {
-                "input": str(args.input),
-                "duration": info.duration,
-                "peaks": [{"time": round(p.time, 2), "score": round(p.score, 3)} for p in peaks],
-                "clips": [
-                    {"start": round(c.start, 2), "end": round(c.end, 2), "score": round(c.score, 3)}
-                    for c in plans
-                ],
-            },
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                {
+                    "input": str(args.input),
+                    "duration": info.duration,
+                    "peaks": [
+                        {"time": round(p.time, 2), "score": round(p.score, 3)} for p in peaks
+                    ],
+                    "clips": [
+                        {
+                            "start": round(c.start, 2),
+                            "end": round(c.end, 2),
+                            "score": round(c.score, 3),
+                        }
+                        for c in plans
+                    ],
+                },
+                indent=2,
+            )
+        )
         return 0
     print(f"{args.input}: {info.duration:.1f}s, {len(peaks)} peaks, {len(plans)} clips")
     for clip in plans:
@@ -82,8 +98,13 @@ def cmd_clip(args: argparse.Namespace) -> int:
     out = Path(args.out)
     print(f"Rendering {len(plans)} clip(s) into {out}/ ...")
     written = render_plans(
-        args.input, plans, out, cfg,
-        on_clip=lambda path, plan: print(f"  + {path.name}  {plan.duration:.1f}s  score {plan.score:.2f}"),
+        args.input,
+        plans,
+        out,
+        cfg,
+        on_clip=lambda path, plan: print(
+            f"  + {path.name}  {plan.duration:.1f}s  score {plan.score:.2f}"
+        ),
     )
     print(f"Done: {len(written)} clip(s).")
     return 0
@@ -97,23 +118,27 @@ def cmd_live(args: argparse.Namespace) -> int:
         realtime=True,
         confirm_delay=0.0 if Path(args.source).exists() else 1.5,
     )
-    print(f"Source: {probe_source(args.source)}")
+    print(f"Source: {probe_source(args.source, args.audio_device)}")
 
     def report(event: dict) -> None:
         if event["type"] == "clip":
-            print(f"  + {Path(event['path']).name}  {event['end'] - event['start']:.1f}s  "
-                  f"score {event['score']:.2f}")
+            print(
+                f"  + {Path(event['path']).name}  {event['end'] - event['start']:.1f}s  "
+                f"score {event['score']:.2f}"
+            )
         elif event["type"] == "error":
             print(f"  ! {event['message']}", file=sys.stderr)
         elif event["type"] == "state":
             print(f"[{event['state']}]")
 
     clipper = LiveClipper(
-        args.source, args.out,
+        args.source,
+        args.out,
         detect=_detect_config(args),
         clip=clip_cfg,
         live=live_cfg,
         subtitles=args.subtitles,
+        audio_device=args.audio_device,
         on_event=report,
     )
     clips = clipper.run(duration=args.duration)
@@ -171,8 +196,12 @@ def build_parser() -> argparse.ArgumentParser:
     clip.set_defaults(func=cmd_clip)
 
     live = sub.add_parser("live", help="watch a live source and auto-cut clips")
-    live.add_argument("source", nargs="?", default="screen",
-                      help="screen | camera | stream URL | video file")
+    live.add_argument(
+        "source",
+        nargs="?",
+        default="screen",
+        help="screen | camera | stream URL | video file",
+    )
     live.add_argument("--duration", type=float, default=None, help="stop after N seconds")
     live.add_argument("--buffer", type=float, default=120.0, help="rolling buffer seconds")
     live.add_argument("--segment", type=float, default=2.0, help="segment length seconds")

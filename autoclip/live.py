@@ -4,6 +4,10 @@ The recorder writes 2-second segments into a working directory and keeps a CSV
 index of them. The monitor thread scores the rolling buffer, and as soon as a
 peak has its full post-roll available it renders the clip from the buffered
 segments. Nothing is buffered in memory, so a long session stays cheap.
+
+Sources are objects: a plain command source hands ffmpeg a URL or device, while
+the Android screen source produces an H.264 stream on a socket that ffmpeg
+reads. Everything downstream is identical.
 """
 
 from __future__ import annotations
@@ -14,9 +18,9 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
 
 import numpy as np
 
@@ -46,18 +50,51 @@ def is_android() -> bool:
     return "ANDROID_ARGUMENT" in os.environ or "ANDROID_APP_PATH" in os.environ
 
 
-def resolve_source(source: str) -> tuple[list[str], bool]:
+_AUDIO_FORMATS = {
+    "pulse",
+    "alsa",
+    "dshow",
+    "avfoundation",
+    "wasapi",
+    "coreaudio",
+    "openal",
+}
+
+
+def audio_input(device: str) -> list[str]:
+    """ffmpeg args for a system-audio device.
+
+    Accepts ``fmt:device`` (``pulse:@DEFAULT_MONITOR@``) or a bare device name
+    that is resolved to the platform's usual capture backend.
+    """
+    if ":" in device and device.split(":", 1)[0] in _AUDIO_FORMATS:
+        fmt, name = device.split(":", 1)
+        return ["-f", fmt, "-i", name]
+    if sys.platform.startswith("linux"):
+        return ["-f", "pulse", "-i", device]
+    if sys.platform.startswith("win"):
+        return ["-f", "dshow", "-i", f"audio={device}"]
+    if sys.platform == "darwin":
+        return ["-f", "avfoundation", "-i", device]
+    return ["-i", device]
+
+
+def resolve_source(source: str, audio_device: str | None = None) -> tuple[list[str], bool]:
     """Map a friendly source name onto ffmpeg input args.
 
     Returns ``(input_args, is_file)`` where ``is_file`` means the input should be
-    paced with ``-re`` to behave like a live feed.
+    paced with ``-re`` to behave like a live feed. ``audio_device`` adds a
+    second input carrying system sound, which screen capture does not provide
+    on its own.
     """
+    args, is_file = _resolve_video_source(source)
+    if audio_device:
+        args = args + audio_input(audio_device)
+    return args, is_file
+
+
+def _resolve_video_source(source: str) -> tuple[list[str], bool]:
     key = source.strip().lower()
-    if is_android() and key in {"screen", "desktop", "camera"}:
-        raise MediaError(
-            "Screen and camera capture on Android need the MediaProjection service, "
-            "which ships in v0.2. Use a stream URL or a video file for now."
-        )
     if key in {"screen", "desktop"}:
         if sys.platform.startswith("linux"):
             display = os.environ.get("AUTOCLIP_DISPLAY") or os.environ.get("DISPLAY", ":0.0")
@@ -80,69 +117,176 @@ def resolve_source(source: str) -> tuple[list[str], bool]:
     return ["-i", source], Path(source).expanduser().exists()
 
 
+class Source:
+    """Something ffmpeg can read, possibly needing a producer process."""
+
+    is_file = False
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def input_args(self) -> list[str]:
+        raise NotImplementedError
+
+    def maps(self) -> list[str]:
+        return ["-map", "0:v:0?", "-map", "0:a:0?"]
+
+    def describe(self) -> str:
+        return " ".join(self.input_args())
+
+
+class CommandSource(Source):
+    def __init__(self, source: str, audio_device: str | None = None) -> None:
+        self.source = source
+        self.audio_device = audio_device
+        self._args, self.is_file = resolve_source(source, audio_device)
+
+    def input_args(self) -> list[str]:
+        return list(self._args)
+
+    def maps(self) -> list[str]:
+        if self.audio_device and self._args.count("-i") > 1:
+            return ["-map", "0:v:0?", "-map", "1:a:0?"]
+        return super().maps()
+
+    def describe(self) -> str:
+        kind = "file" if self.is_file else "live"
+        extra = f" + audio {self.audio_device}" if self.audio_device else ""
+        return f"{kind} input: {' '.join(self._args)}{extra}"
+
+
+def open_source(source: str, audio_device: str | None = None) -> Source:
+    """Resolve a source name, using the Android projection bridge when needed."""
+    key = source.strip().lower()
+    if key in {"screen", "desktop", "camera"} and not audio_device:
+        audio_device = os.environ.get("AUTOCLIP_AUDIO_DEVICE") or None
+    if is_android():
+        if key in {"screen", "desktop"}:
+            from .android import screen_source
+
+            return screen_source()
+        if key == "camera":
+            raise MediaError(
+                "camera capture is not wired on Android yet; use screen, a stream URL "
+                "or a video file"
+            )
+    return CommandSource(source, audio_device)
+
+
 class SegmentRecorder:
     def __init__(
         self,
-        source: str,
+        source: str | Source,
         work_dir: str | Path,
         *,
         segment_seconds: float = 2.0,
         realtime: bool = True,
         fps: int = 30,
     ) -> None:
-        self.source = source
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.source = source if isinstance(source, Source) else CommandSource(source)
         self.segment_seconds = segment_seconds
         self.realtime = realtime
         self.fps = fps
         self.index = self.work_dir / "segments.csv"
+        self.log_path = self.work_dir / "recorder.log"
         self._proc: subprocess.Popen | None = None
-        self._stderr: list[str] = []
+        self._log = None
 
     def command(self) -> list[str]:
-        input_args, is_file = resolve_source(self.source)
         gop = max(2, int(round(self.segment_seconds * self.fps)))
         args = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
-        if is_file and self.realtime:
+        if self.source.is_file and self.realtime:
             args += ["-re"]
-        args += input_args
+        args += self.source.input_args()
+        args += self.source.maps()
         args += [
-            "-map", "0:v:0?", "-map", "0:a:0?",
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-            "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
-            "-f", "segment",
-            "-segment_time", f"{self.segment_seconds:.3f}",
-            "-reset_timestamps", "1",
-            "-segment_list", str(self.index),
-            "-segment_list_type", "csv",
-            "-segment_list_size", "0",
-            "-segment_format", "mp4",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-g",
+            str(gop),
+            "-keyint_min",
+            str(gop),
+            "-sc_threshold",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-f",
+            "segment",
+            "-segment_time",
+            f"{self.segment_seconds:.3f}",
+            "-reset_timestamps",
+            "1",
+            "-segment_list",
+            str(self.index),
+            "-segment_list_type",
+            "csv",
+            "-segment_list_size",
+            "0",
+            "-segment_format",
+            "mp4",
             str(self.work_dir / "seg_%05d.mp4"),
         ]
         return [ffmpeg_bin(), *args]
 
     def start(self) -> None:
-        self._proc = subprocess.Popen(
-            self.command(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
-        )
+        self.source.start()
+        self._log = open(self.log_path, "w+", encoding="utf-8", errors="replace")
+        self._proc = subprocess.Popen(self.command(), stdout=subprocess.DEVNULL, stderr=self._log)
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            if self._proc.poll() is not None:
+                message = self.last_error()
+                self.stop()
+                raise MediaError(f"capture failed to start: {message or 'ffmpeg exited'}")
+            time.sleep(0.05)
 
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def last_error(self) -> str:
+        if self._log is None:
+            return ""
+        try:
+            self._log.flush()
+            size = os.fstat(self._log.fileno()).st_size
+            self._log.seek(max(0, size - 4000))
+            text = self._log.read()
+        except (OSError, ValueError):
+            return ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return " | ".join(lines[-3:])[:400]
+
     def stop(self) -> None:
-        if self._proc is None:
-            return
-        if self._proc.poll() is None:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait(timeout=5)
-        self._proc = None
+        if self._proc is not None:
+            if self._proc.poll() is None:
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    self._proc.wait(timeout=5)
+            self._proc = None
+        self.source.stop()
+        if self._log is not None:
+            self._log.close()
+            self._log = None
 
     def segments(self) -> list[Segment]:
         if not self.index.exists():
@@ -176,7 +320,7 @@ class LiveClipper:
 
     def __init__(
         self,
-        source: str,
+        source: str | Source,
         out_dir: str | Path,
         *,
         detect: DetectConfig | None = None,
@@ -184,9 +328,10 @@ class LiveClipper:
         live: LiveConfig | None = None,
         work_dir: str | Path | None = None,
         subtitles: str | Path | None = None,
+        audio_device: str | None = None,
         on_event: Callable[[Event], None] | None = None,
     ) -> None:
-        self.source = source
+        self.source = source if isinstance(source, Source) else open_source(source, audio_device)
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.detect = detect or DetectConfig()
@@ -202,7 +347,10 @@ class LiveClipper:
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
         self.recorder = SegmentRecorder(
-            source, self.work_dir, segment_seconds=self.live.segment_seconds, realtime=self.live.realtime
+            self.source,
+            self.work_dir,
+            segment_seconds=self.live.segment_seconds,
+            realtime=self.live.realtime,
         )
         self._audio: list[np.ndarray] = []
         self._audio_times: list[np.ndarray] = []
@@ -326,9 +474,10 @@ class LiveClipper:
             if deadline is not None and time.monotonic() >= deadline:
                 break
             if not self.recorder.is_running():
-                time.sleep(max(0.0, self.live.tick))
-                if not self.recorder.is_running():
-                    break
+                message = self.recorder.last_error()
+                if message:
+                    self._emit({"type": "error", "message": message})
+                break
             self._stop.wait(self.live.tick)
         try:
             self.tick()
@@ -337,7 +486,7 @@ class LiveClipper:
 
     def start(self) -> None:
         self.recorder.start()
-        self._emit({"type": "state", "state": "live", "source": self.source})
+        self._emit({"type": "state", "state": "live", "source": self.source.describe()})
         self._thread = threading.Thread(target=self._loop, args=(None,), daemon=True)
         self._thread.start()
 
@@ -353,14 +502,13 @@ class LiveClipper:
         """Blocking session; ``duration`` limits it in seconds."""
         deadline = time.monotonic() + duration if duration else None
         self.recorder.start()
-        self._emit({"type": "state", "state": "live", "source": self.source})
+        self._emit({"type": "state", "state": "live", "source": self.source.describe()})
         self._loop(deadline)
         self.recorder.stop()
         self._emit({"type": "state", "state": "idle"})
         return list(self.clips)
 
 
-def probe_source(source: str) -> str:
+def probe_source(source: str, audio_device: str | None = None) -> str:
     """Human-readable description used by the CLI and UI."""
-    args, is_file = resolve_source(source)
-    return f"{'file' if is_file else 'live'} input: {' '.join(args)}"
+    return open_source(source, audio_device).describe()

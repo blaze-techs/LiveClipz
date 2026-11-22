@@ -24,7 +24,7 @@ class DetectConfig:
     motion_fps: float = 4.0
     motion_size: tuple[int, int] = (160, 90)
 
-    def with_sensitivity(self, sensitivity: float) -> "DetectConfig":
+    def with_sensitivity(self, sensitivity: float) -> DetectConfig:
         """Map a 0.5..3.0 UI slider onto the z-score threshold (higher = pickier)."""
         return replace(self, threshold=max(0.4, 3.2 - float(sensitivity)))
 
@@ -47,7 +47,7 @@ class ClipConfig:
     preset: str = "veryfast"
     fps: int = 30
 
-    def with_length(self, seconds: float) -> "ClipConfig":
+    def with_length(self, seconds: float) -> ClipConfig:
         """Target clip length: split the window evenly and stop windows merging
         across more than ~10% of their length."""
         seconds = max(2.0, float(seconds))
